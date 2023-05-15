@@ -1,11 +1,8 @@
 package main
 
 import (
-	"fmt"
-	"strings"
 	"github.com/gin-gonic/gin"
-	"github.com/looplab/fsm"
-	"gopkg.in/yaml.v2"
+	"go_fsm_marmaid/dfsm"
 )
 
 const statedata string = `
@@ -86,12 +83,12 @@ type Definition struct {
 func main() {
 	r := gin.Default()
 
-	gfsm ,def:= makeFsm(statedata)
+	ds := dfsm.NewDomainFsm(statedata)
 	
 	r.Static("/static", "./static")
 	r.GET("/mermaid", func(c *gin.Context) {
 		// Mermaidコードの生成 (現在の状態をStateAとしてスタイル変更
-		crcode := genCodeSrcFsm(gfsm,def.Transitions)
+		crcode := ds.GenCodeSrcFsm()
 		html := `
 			<!DOCTYPE html>
 			<html>
@@ -117,7 +114,7 @@ func main() {
 }
 
 
-
+/*
 func makeFsm(yamlstr string)(*fsm.FSM,Definition) {
 	var def Definition
 	yamlbin := []byte(yamlstr)
@@ -168,4 +165,4 @@ func genEvents(tslist []Transition)([]fsm.EventDesc) {
 	}
 	return desc
 }
-
+*/
