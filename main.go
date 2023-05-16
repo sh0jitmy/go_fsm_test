@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"go_fsm_marmaid/dfsm"
 )
@@ -12,19 +13,19 @@ states:
 - name: stateA
 - name: stateB
 - name: stateC
-Permission:
+permissions:
 - event: eventX
   permits:
-  - name :stateA 
-  - name :stateC 
+  - name : stateA 
+  - name : stateC 
 - event: eventY
   permits:
-  - name :stateA 
-  - name :stateB 
+  - name : stateA 
+  - name : stateB 
 - event: eventZ
   permits:
-  - name :stateA 
-  - name :stateC 
+  - name : stateA 
+  - name : stateC 
 transitions:
 - event: eventX
   dst: 
@@ -43,49 +44,55 @@ transitions:
   - name: stateA
   src: 
   - name: stateC
-callbacks:
-- event:  eventX
-  cbtype: before 
-  fname : eventXcall
 `
 
-type State struct {
-	Name string `yaml:"name"`
-}
+const eventdata string = `
+events:
+  - id : testid1
+    value: testvalue1
+    event: eventX
+  - id : testid1
+    value: testvalue2
+    event: eventY
+  - id : testid2
+    value: testvalue1
+    event: eventZ
+`
 
-
-type Permission struct {
-	Event  string `yaml:"event"`
-	Permits []State `yaml:"permits"`
-}
-
-type Transition struct {
-	Event string `yaml:"event"`
-	Dst   []State `yaml:"dst"`
-	Src   []State `yaml:"src"`
-}
-
-type Callback struct {
-	Event string `yaml:"event"`
-	CType string `yaml:"ctype"`
-	Fname string `yaml:"fname"`
-}
-
-type Definition struct {
-	InitialState State        `yaml:"initial"`
-	States       []State       `yaml:"states"`
-	Permissions  []Permission  `yaml:"permissions"`
-	Transitions  []Transition  `yaml:"transitions"`
-	Callbacks    []Callback   `yaml:"callbacks"`
-}
-
+type InputRes struct {
+    Permit  string    `json:"permit"`
+    Id      string    `json:"id"`
+    Value   string    `json:"value"`
+    State string `json:"state"`
+} 
 
 func main() {
 	r := gin.Default()
 
-	ds := dfsm.NewDomainFsm(statedata)
-	
+	ds,err := dfsm.NewDomainFsm(statedata,eventdata)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(ds.Evmap)
+
+	var res InputRes	
+		
 	r.Static("/static", "./static")
+	r.GET("/test/testid1", func(c *gin.Context) {
+		permit,statename,err := ds.Input("testid1","testvalue1")
+		if err != nil {
+			panic(err)
+		}
+		if (permit) {
+			res.Permit = "Permit"
+		} else {
+			res.Permit = "Deny"
+		}
+		res.Id = "testid1"
+		res.Value = "testvalue1"
+		res.State = statename	
+		c.JSON(200,res)
+        })
 	r.GET("/mermaid", func(c *gin.Context) {
 		// Mermaidコードの生成 (現在の状態をStateAとしてスタイル変更
 		crcode := ds.GenCodeSrcFsm()
