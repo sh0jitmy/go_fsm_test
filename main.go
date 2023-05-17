@@ -79,7 +79,8 @@ func main() {
 		
 	r.Static("/static", "./static")
 	r.GET("/test/testid1", func(c *gin.Context) {
-		permit,statename,err := ds.Input("testid1","testvalue1")
+		afsm ,_ := ds.NewAdhocFsm("") 
+		permit,statename,err := afsm.Input("testid1","testvalue1")
 		if err != nil {
 			panic(err)
 		}
@@ -95,7 +96,8 @@ func main() {
         })
 	r.GET("/mermaid", func(c *gin.Context) {
 		// Mermaidコードの生成 (現在の状態をStateAとしてスタイル変更
-		crcode := ds.GenCodeSrcFsm()
+		afsm ,_ := ds.NewAdhocFsm("") 
+		crcode := ds.GenCodeSrcFsm(afsm)
 		html := `
 			<!DOCTYPE html>
 			<html>

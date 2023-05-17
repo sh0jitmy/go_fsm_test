@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"context"
+	"errors"
         "github.com/looplab/fsm"
         "gopkg.in/yaml.v2"
 )
@@ -49,7 +50,12 @@ type EventTuple struct {
 type DomainFsm struct {
 	Def  Definition
 	Evmap   map[string]string
+}
+
+type AdhocFsm struct {
 	fsm  *fsm.FSM
+	evmap   map[string]string
+	permissions []Permission
 }
 
 func NewDomainFsm(stateyaml string,eventyaml string) (*DomainFsm,error){
@@ -61,12 +67,6 @@ func NewDomainFsm(stateyaml string,eventyaml string) (*DomainFsm,error){
         if err != nil {
         	return nil,err
 	}
-        // Go言語のFSMを作成する
-        fsm := fsm.NewFSM(
-                def.InitialState.Name,         // 初期状態
-                genEvents(def.Transitions),             // 遷移
-                fsm.Callbacks{},          // コールバック（省略可能）
-        )
 	eventbin := []byte(eventyaml)
         err = yaml.Unmarshal(eventbin, &el)
         if err != nil {
@@ -76,48 +76,102 @@ func NewDomainFsm(stateyaml string,eventyaml string) (*DomainFsm,error){
 	for _, et := range el.Et {
 		emap[et.ID+et.Value] = et.Event
 	}
-	df := &DomainFsm{fsm: fsm, Def: def, Evmap: emap}
+	df := &DomainFsm{Def: def, Evmap: emap}
 
         return df,nil 
 }
 
-func (df *DomainFsm) Input(id string, value string)(bool,string,error) {
-	eventname,exists := df.genEvent(id,value)	
+
+
+func (df *DomainFsm) NewAdhocFsm(instate string) (*AdhocFsm,error){
+	var initstate = ""
+
+	if instate == "" {
+		initstate = df.Def.InitialState.Name         // 初期状態
+	}else {
+		initstate = instate
+	}	
+
+	if df.checkState(initstate) != true {
+		return nil,errors.New("instate is invalid")
+	} 
+
+	// Go言語のFSMを作成する
+	fsm := fsm.NewFSM(
+		initstate,
+		genEvents(df.Def.Transitions),             // 遷移
+		fsm.Callbacks{},          // コールバック（省略可能）
+        )
+	af := &AdhocFsm{fsm: fsm, evmap:df.Evmap, permissions:df.Def.Permissions}
+	return af,nil
+}
+
+func (df *DomainFsm) checkState(state string)(bool) {
+        for _, s := range df.Def.States {
+		if s.Name == state {
+			return true
+		}
+	}
+	return false
+}
+
+func (df *DomainFsm) GenCodeSrcFsm(af *AdhocFsm)(string) {
+        var sb strings.Builder
+        sb.WriteString("graph TD;\n")
+        for _, e := range df.Def.Transitions {
+                for _, s := range e.Src {
+                        sb.WriteString(fmt.Sprintf("%s --%s--> %s;\n", s.Name, e.Event, e.Dst[0].Name))
+                }
+        }
+        sb.WriteString(fmt.Sprintf("style %s fill:#7BCCAC\n",af.fsm.Current()))
+        str := sb.String() 
+        fmt.Println(str)
+        return str
+}
+
+func (af *AdhocFsm) Input(id string, value string)(bool,string,error) {
+	eventname,exists := af.decodeEvent(id,value)	
 	if exists == false {
 		fmt.Println("event not found.default selected")
 		eventname =  "Default"
 	} 
 	fmt.Printf("check Permit call:[%v]\n",eventname)
-	permit := df.checkPermitEvent(eventname)
+	permit := af.checkPermitEvent(eventname)
 	
 	if permit != true {
-		return permit,df.fsm.Current(),nil
+		return permit,af.fsm.Current(),nil
 	} 
-	err := df.fsm.Event(context.Background(),eventname)
+	err := af.fsm.Event(context.Background(),eventname)
 	if err != nil {
-		return permit,df.fsm.Current(),err
+		return permit,af.fsm.Current(),err
 	}
-	return permit,df.fsm.Current(),nil
+	return permit,af.fsm.Current(),nil
 }
 
-func (df *DomainFsm)genEvent(id string,value string) (string,bool){
+func (af *AdhocFsm)decodeEvent(id string,value string) (string,bool){
 	eventkey := id+value
 	eventvalue := ""
 	evfind := false
-	if val,ok := df.Evmap[eventkey]; ok {
+	if val,ok := af.evmap[eventkey]; ok {
 		eventvalue = val
 		evfind = ok
-	}
+		return eventvalue,evfind	
+	} 
+	//if notfound,value  wild card routine
+	eventkey = id+"*"
+	if val,ok := af.evmap[eventkey]; ok {
+		eventvalue = val
+		evfind = ok
+	} 
 	return eventvalue,evfind	
 }
 
-func (df *DomainFsm)checkPermitEvent(event string)(bool){
-	fmt.Printf("permission:%v\n",df.Def.Permissions)
-	for _, p := range df.Def.Permissions {
+func (af *AdhocFsm)checkPermitEvent(event string)(bool){
+	for _, p := range af.permissions {
 		if p.Event == event {
 			fmt.Println("check event found")
 			for _, s := range p.Permits {
-				if (s.Name == df.fsm.Current()) {
+				if (s.Name == af.fsm.Current()) {
 					return true
 				}
 			}
@@ -127,19 +181,6 @@ func (df *DomainFsm)checkPermitEvent(event string)(bool){
 }
 
 
-func (df *DomainFsm) GenCodeSrcFsm()(string) {
-        var sb strings.Builder
-        sb.WriteString("graph TD;\n")
-        for _, e := range df.Def.Transitions {
-                for _, s := range e.Src {
-                        sb.WriteString(fmt.Sprintf("%s --%s--> %s;\n", s.Name, e.Event, e.Dst[0].Name))
-                }
-        }
-        sb.WriteString(fmt.Sprintf("style %s fill:#7BCCAC\n",df.fsm.Current()))
-        str := sb.String() 
-        fmt.Println(str)
-        return str
-}
 
 func getSrc(slist []State)([]string) {
         var namelist []string
